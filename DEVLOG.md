@@ -4,67 +4,7 @@
 
 ---
 
-## 2026-06-06：NuttX 首次启动成功
-
-### 重大突破
-
-**NuttX 在 RK3566 KICKPI K11C 上成功启动，NSH Shell 可交互！**
-
-### 解决的关键问题
-
-| 问题 | 原因 | 修复 |
-|------|------|------|
-| EL2→EL1 `eret` 崩溃 | U-Boot 的 MMU 开着，`eret` 在虚拟地址空间执行失败 | 在 `real_start` 最开头关闭 EL2 MMU |
-| CONFIG_RAM_END 符号扩展 | `0x80000000` 在 64 位运算中被符号扩展为 `0xFFFFFFFF80000000` | 用 `((uintptr_t)0x8000) << 16` 构造，避免编译器编码问题 |
-| SVC 异常在 EL2 不处理 | 异常处理器只处理 EL1，EL2 直接返回错误 | 在 `arm64_fatal.c` 的 EL2 case 中添加 SVC 处理 |
-| 向量表 EL1 寄存器 | 向量表读写 `esr_el1`/`spsr_el1`，EL2 下无效 | 添加 `#elif CONFIG_ARCH_ARM64_EXCEPTION_LEVEL == 2` 分支 |
-| 任务 SPSR 模式错误 | 新任务 SPSR 设为 `SPSR_MODE_EL1H`，但 CPU 在 EL2 | 改为 `SPSR_MODE_EL2H` |
-
-### 修改的文件清单
-
-**NuttX 核心修改（EL2 适配）：**
-- `arch/arm64/src/common/arm64_head.S` — 关闭 U-Boot MMU、EL2 向量表设置
-- `arch/arm64/src/common/arm64_fatal.c` — EL2 SVC 异常处理
-- `arch/arm64/src/common/arm64_vector_table.S` — EL2 elr/spsr 读写
-- `arch/arm64/src/common/arm64_vectors.S` — EL2 esr/spsr 读写
-- `arch/arm64/src/common/arm64_initialstate.c` — 任务 SPSR 用 EL2H
-- `arch/arm64/src/common/arm64_schedulesigaction.c` — 信号 SPSR 用 EL2H
-- `arch/arm64/src/common/arm64_syscall.c` — 系统调用 SPSR 用 EL2H
-- `arch/arm64/src/common/arm64_allocateheap.c` — 堆大小计算修复
-- `arch/arm64/src/common/arm64_mmu.c` — EL2 MMU 支持（TCR、断言）
-- `include/nuttx/config.h` — CONFIG_RAM_END 类型修复
-
-**RK3566 BSP 文件：**
-- `arch/arm64/src/rk3566/` — 芯片支持（9 个文件）
-- `arch/arm64/include/rk3566/` — 芯片头文件（chip.h, irq.h）
-- `boards/arm64/rk3566/kickpi_k11c/` — 板级支持（11 个文件）
-- `arch/arm64/Kconfig` — 注册 RK3566 芯片
-- `boards/Kconfig` — 注册 KICKPI K11C 板
-
-### 启动方式
-
-```bash
-# U-Boot 命令行
-setenv bootcmd 'mmc read 0x02080000 0x8000 0x1000; go 0x02080040'
-boot
-```
-
-### 当前状态
-
-- ✅ 内核启动
-- ✅ 串口控制台（UART2 @ 1500000 波特率）
-- ✅ NSH Shell 可交互
-- ✅ 基本命令可用（ls, cd 等）
-- ⚠️ 运行在 EL2（非标准，部分功能可能受限）
-- ❌ 网络未就绪
-- ❌ 外设驱动未开发
-
-### 下一步
-
-1. 配置网络（以太网或 WiFi）
-2. 开发基础外设驱动（GPIO、I2C、SPI）
-3. 适配 openvela 独有组件
-4. 开发 AI Agent 应用
+## 2026-06-05：基础 BSP 移植（第一阶段起步）
 
 ### 完成内容
 
@@ -116,12 +56,11 @@ boot
 
 ### 关键技术决策
 
-- **Console UART**: UART2 @ 0xfe660000，1500000 波特率（从 DTB bootargs 确认：`earlycon=uart8250,mmio32,0xfe660000`）
+- **Console UART**: UART2 @ 0xfe660000，1500000 波特率（从 DTB bootargs 确认）
 - **内存布局**: 2GB RAM，起始 0x02000000（从 DTS memory 节点提取）
-- **GIC**: GICv3 @ 0xfd400000（RK3566 使用 GICv3，与 RK3399 的 GICv2 不同）
-- **UART IP**: DW APB UART（8250 兼容），与 RK3399 使用相同 IP 核，寄存器布局一致
-- **UART 时钟**: 24MHz（xin24m），由 U-Boot 配置好
-- **启动方式**: U-Boot 加载 nuttx.bin 到 0x02080000，`go 0x02080000` 启动
+- **GIC**: GICv3 @ 0xfd400000
+- **UART IP**: DW APB UART（8250 兼容）
+- **启动方式**: U-Boot `go 0x02080040`
 
 ### 编译结果
 
@@ -142,6 +81,74 @@ nuttx.bin: raw binary, 316KB
 2. 验证串口控制台输出和 NSH Shell 交互
 3. 开发 GMAC 以太网驱动（AI Agent 需要网络调用 LLM API）
 4. 开发 GPIO/I2C/SPI 基础外设驱动
+
+---
+
+## 2026-06-06：NuttX EL1 启动成功
+
+### 重大突破
+
+**NuttX 在 RK3566 KICKPI K11C 上以 EL1 模式成功启动，NSH Shell 可交互！**
+
+### EL2→EL1 降级方案
+
+U-Boot 的 `go` 命令不处理异常级别切换，CPU 始终停留在 EL2。通过在 `arm64_head.S` 的 `real_start` 最开头插入降级代码解决：
+
+```assembly
+/* 清除 HCR_EL2 的关键位 */
+mrs    x0, hcr_el2
+bic    x0, x0, #(1 << 27)     /* TGE: 陷出通用异常 */
+bic    x0, x0, #(1 << 4)      /* IMO: 陷出 IRQ */
+bic    x0, x0, #(1 << 3)      /* FMO: 陷出 FIQ */
+bic    x0, x0, #(1 << 5)      /* AMO: 陷出 SError */
+orr    x0, x0, #(1 << 31)     /* RW=1: EL1 运行 AArch64 */
+msr    hcr_el2, x0
+
+mov    x0, #0x3c5             /* SPSR: DAIF 掩码, EL1h 模式 */
+msr    spsr_el2, x0
+adr    x0, 1f
+msr    elr_el2, x0
+eret                           /* 降到 EL1 */
+1:
+```
+
+### 解决的关键问题（EL1 路径）
+
+| 问题 | 原因 | 修复 |
+|------|------|------|
+| `eret` 崩溃 (ESR 0x3a000000) | HCR_EL2.TGE=1 导致 EL1 异常被陷出到 EL2 | 清除 TGE/IMO/FMO/AMO 位 |
+| 中断被陷到 EL2 | HCR_EL2.IMO/FMO 未清除 | 在 eret 前清除 IMO/FMO/AMO |
+| CONFIG_RAM_END 符号扩展 | 0x80000000 在 64 位运算中符号扩展 | 用 `((uintptr_t)0x8000)<<16` 构造 |
+| 堆大小计算错误 | 编译器把 0x80000000 编码为 mov 立即数时符号扩展 | 运行时移位构造 |
+
+### 启动输出
+
+```
+- Ready to Boot Primary CPU
+- Boot from EL1
+- Boot to C runtime for OS Initialize
+nx_start: Entry
+GICv3 version detect
+heap_start=0x20d1000, heap_size=0x7df2f000
+Registering /dev/console
+Registering /dev/ttyS0
+Starting high-priority kernel worker thread(s)
+nsh_main pid=2
+Beginning Idle Loop
+nsh>
+```
+
+### 当前状态
+
+- ✅ EL1 模式运行
+- ✅ 内核启动
+- ✅ 串口控制台（UART2 @ 1500000 波特率）
+- ✅ NSH Shell 可交互
+- ✅ GICv3 中断控制器
+- ✅ 标准 EL1 代码路径（MMU、异常处理、任务调度）
+- ⚠️ 串口输出偶有乱码（输出竞争）
+- ❌ 网络未就绪
+- ❌ 外设驱动未开发
 
 ---
 
