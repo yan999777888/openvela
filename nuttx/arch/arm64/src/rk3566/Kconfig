@@ -1,0 +1,93 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+if ARCH_CHIP_RK3566
+
+menu "Rockchip RK3566 Peripheral Selection"
+
+config RK3566_UART0
+	bool "UART 0"
+	default n
+	select UART0_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART0 at 0xfdd50000.
+
+config RK3566_UART1
+	bool "UART 1"
+	default n
+	select UART1_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART1 at 0xfe650000.
+
+config RK3566_UART2
+	bool "UART 2 (Console)"
+	default y
+	select UART2_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART2 at 0xfe660000.
+		This is the default debug console for KICKPI K11C.
+
+config RK3566_UART3
+	bool "UART 3"
+	default n
+	select UART3_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART3 at 0xfe670000.
+
+config RK3566_UART4
+	bool "UART 4"
+	default n
+	select UART4_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART4 at 0xfe680000.
+
+config RK3566_UART5
+	bool "UART 5"
+	default n
+	select UART5_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART5 at 0xfe690000.
+
+config RK3566_UART6
+	bool "UART 6"
+	default n
+	select UART6_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART6 at 0xfe6a0000.
+
+config RK3566_UART7
+	bool "UART 7"
+	default n
+	select UART7_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART7 at 0xfe6b0000.
+
+config RK3566_UART8
+	bool "UART 8"
+	default n
+	select UART8_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART8 at 0xfe6c0000.
+
+config RK3566_UART9
+	bool "UART 9"
+	default n
+	select UART9_SERIALDRIVER
+	select ARCH_HAVE_SERIAL_TERMIOS
+	---help---
+		Select to enable support for UART9 at 0xfe6d0000.
+
+endmenu # Rockchip RK3566 Peripheral Selection
+
+endif # ARCH_CHIP_RK3566
