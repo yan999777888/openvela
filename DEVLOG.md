@@ -176,3 +176,62 @@ nsh>
 - [ ] MCP Server
 - [ ] LVGL 聊天 UI
 - [ ] 向 openvela 社区提交 PR
+
+---
+
+## 2026-06-09: EL1 启动修复 + GMAC 网络驱动调试
+
+### 问题排查过程
+
+#### 1. EL2→EL1 降级（已解决）
+
+U-Boot `go` 命令停留在 EL2。GMAC 硬件寄存器在 EL2 下不可访问（bus firewall）。
+
+**解决方案**：在 `arm64_head.S` 的 `real_start` 开头插入 eret 降级代码。
+
+关键修改：
+- 在 `real_start` 最开头（MMU disable 之前）做 eret
+- 清除 HCR_EL2.TGE/IMO/FMO/AMO 位
+- 设置 HCR_EL2.RW=1（EL1 AArch64）
+- 设置 SPSR_EL2=0x3c5（EL1h, DAIF masked）
+- eret 后跳过所有 EL2 代码
+
+#### 2. MMU 初始化挂起（已解决）
+
+`enable_mmu_el1` 内部的 `_err()` 调用在早期启动阶段不工作（syslog 未初始化），导致挂起。
+
+**解决方案**：将所有 `_err()` 替换为直接 UART2 写入（0xFE660000），等待 TX FIFO 就绪。
+
+#### 3. `switch_el` 宏标签冲突（已解决）
+
+GNU assembler 的本地标签（`1:`, `2:`, `3:`）在宏展开中被错误解析，导致 EL1 分支跳到 `fail`。
+
+**解决方案**：移除 `switch_el` 宏，直接在 `cpu_boot` 后调用 `arm64_boot_el1_init` 然后跳到 C 入口。
+
+#### 4. `__reset_prep_c` 栈设置（关键）
+
+`__reset_prep_c` 中的 `prep_el1` 路径必须正确设置 SP_EL1 和 SP_EL0。原版 openvela_rk3566 代码已经处理了这个问题。
+
+#### 5. GMAC 网络驱动（待解决）
+
+EL1 启动成功后，GMAC 网络驱动仍有问题：
+- PHY 检测失败（MDIO 返回 0xffff）
+- DMA 寄存器写入不生效
+- CRU 时钟和 GRF 引脚配置需要从 U-Boot 完成
+
+### 当前状态
+
+- ✅ EL1 模式成功启动
+- ✅ NSH Shell 可交互
+- ✅ MMU 初始化成功
+- ✅ GICv3 中断控制器
+- ✅ 串口控制台
+- ⚠️ PHY 检测失败（MDIO 不工作）
+- ❌ 网络未就绪
+- ❌ GMAC DMA 不工作
+
+### 下一步
+
+1. 从 U-Boot 配置 CRU 时钟和 GRF 引脚（EL2 下无法访问）
+2. 修复 MDIO 总线通信
+3. 修复 GMAC DMA 传输

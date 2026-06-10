@@ -96,11 +96,34 @@ void arm64_el_init(void)
  *
  ****************************************************************************/
 
+/* CRU test value set by early assembly code */
+
+volatile uint32_t g_cru_test = 0xDEADBEEF;
+
 void arm64_chip_boot(void)
 {
-  /* MAP IO and DRAM, enable MMU. */
+  /* Direct UART2 test - bypass syslog */
+
+  {
+    volatile uint32_t *uart = (volatile uint32_t *)0xFE660000;
+    *uart = 'A';  /* Before MMU init */
+  }
+
+  /* MAP IO and DRAM, enable MMU.
+   * Required: without MMU, accesses to high DRAM addresses (heap/stack)
+   * cause translation faults.
+   */
 
   arm64_mmu_init(true);
+
+  {
+    volatile uint32_t *uart = (volatile uint32_t *)0xFE660000;
+    *uart = 'B';  /* After MMU init */
+  }
+
+  /* Check CRU test value from assembly */
+
+  _err("CRU test value: 0x%08x\n", g_cru_test);
 
 #if defined(CONFIG_ARM64_PSCI)
   arm64_psci_init("smc");
